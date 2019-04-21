@@ -10,6 +10,8 @@ type testCanvas struct {
 
 	onTypedRune func(rune)
 	onTypedKey  func(*fyne.KeyEvent)
+
+	fyne.ShortcutHandler
 }
 
 func (c *testCanvas) Content() fyne.CanvasObject {
@@ -26,6 +28,13 @@ func (c *testCanvas) Refresh(fyne.CanvasObject) {
 func (c *testCanvas) Focus(obj fyne.Focusable) {
 	c.focused = obj
 	obj.FocusGained()
+}
+
+func (c *testCanvas) Unfocus() {
+	if c.focused != nil {
+		c.focused.(fyne.Focusable).FocusLost()
+	}
+	c.focused = nil
 }
 
 func (c *testCanvas) Focused() fyne.Focusable {

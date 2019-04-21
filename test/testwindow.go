@@ -11,9 +11,11 @@ type testWindow struct {
 	fullScreen bool
 	fixedSize  bool
 	padded     bool
+	focused    bool
 	onClosed   func()
 
-	canvas fyne.Canvas
+	canvas    fyne.Canvas
+	clipboard fyne.Clipboard
 }
 
 var windows = make([]fyne.Window, 0)
@@ -41,6 +43,14 @@ func (w *testWindow) CenterOnScreen() {
 
 func (w *testWindow) Resize(fyne.Size) {
 	// no-op
+}
+
+func (w *testWindow) RequestFocus() {
+	for _, win := range windows {
+		win.(*testWindow).focused = false
+	}
+
+	w.focused = true
 }
 
 func (w *testWindow) FixedSize() bool {
@@ -71,14 +81,23 @@ func (w *testWindow) SetOnClosed(closed func()) {
 	w.onClosed = closed
 }
 
-func (w *testWindow) Show() {}
+func (w *testWindow) Show() {
+	w.RequestFocus()
+}
 
-func (w *testWindow) Hide() {}
+func (w *testWindow) Clipboard() fyne.Clipboard {
+	return w.clipboard
+}
+
+func (w *testWindow) Hide() {
+	w.focused = false
+}
 
 func (w *testWindow) Close() {
 	if w.onClosed != nil {
 		w.onClosed()
 	}
+	w.focused = false
 
 	windowsMutex.Lock()
 	i := 0
@@ -114,6 +133,7 @@ func NewWindow(content fyne.CanvasObject) fyne.Window {
 	canvas := NewCanvas()
 	canvas.SetContent(content)
 	window := &testWindow{canvas: canvas}
+	window.clipboard = &testClipboard{}
 
 	windowsMutex.Lock()
 	windows = append(windows, window)

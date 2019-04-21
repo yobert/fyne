@@ -40,7 +40,7 @@ func Icons(app fyne.App) {
 		b.setIcon(b.current + 1)
 	})
 	b.name = widget.NewLabel(icons[b.current].name)
-	bar := widget.NewHBox(prev, next, b.name, layout.NewSpacer())
+	bar := widget.NewHBox(prev, next, b.name)
 
 	background := canvas.NewRasterWithPixels(checkerPattern)
 	background.SetMinSize(fyne.NewSize(280, 280))
@@ -69,24 +69,53 @@ var icons = []struct {
 	{"CancelIcon", theme.CancelIcon()},
 	{"ConfirmIcon", theme.ConfirmIcon()},
 	{"DeleteIcon", theme.DeleteIcon()},
+	{"SearchIcon", theme.SearchIcon()},
+	{"SearchReplaceIcon", theme.SearchReplaceIcon()},
+
 	{"CheckButtonIcon", theme.CheckButtonIcon()},
 	{"CheckButtonCheckedIcon", theme.CheckButtonCheckedIcon()},
-	{"RadioButtonIcon", theme.CheckButtonIcon()},
-	{"RadioButtonCheckedIcon", theme.CheckButtonCheckedIcon()},
+	{"RadioButtonIcon", theme.RadioButtonIcon()},
+	{"RadioButtonCheckedIcon", theme.RadioButtonCheckedIcon()},
 
-	{"CutIcon", theme.CutIcon()},
-	{"CopyIcon", theme.CopyIcon()},
-	{"PasteIcon", theme.PasteIcon()},
+	{"ContentAddIcon", theme.ContentAddIcon()},
+	{"ContentRemoveIcon", theme.ContentRemoveIcon()},
+	{"ContentClearIcon", theme.ContentClearIcon()},
+	{"ContentCutIcon", theme.ContentCutIcon()},
+	{"ContentCopyIcon", theme.ContentCopyIcon()},
+	{"ContentPasteIcon", theme.ContentPasteIcon()},
+	{"ContentRedoIcon", theme.ContentRedoIcon()},
+	{"ContentUndoIcon", theme.ContentUndoIcon()},
 
 	{"InfoIcon", theme.InfoIcon()},
 	{"QuestionIcon", theme.QuestionIcon()},
 	{"WarningIcon", theme.WarningIcon()},
 
+	{"DocumentCreateIcon", theme.DocumentCreateIcon()},
+	{"DocumentPrintIcon", theme.DocumentPrintIcon()},
+	{"DocumentSaveIcon", theme.DocumentSaveIcon()},
+
+	{"FolderIcon", theme.FolderIcon()},
+	{"FolderNewIcon", theme.FolderNewIcon()},
+	{"FolderOpenIcon", theme.FolderOpenIcon()},
+	{"HomeIcon", theme.HomeIcon()},
+	{"HelpIcon", theme.HelpIcon()},
+
+	{"ViewFullScreenIcon", theme.ViewFullScreenIcon()},
+	{"ViewRestoreIcon", theme.ViewRestoreIcon()},
+	{"ZoomFitIcon", theme.ZoomFitIcon()},
+	{"ZoomInIcon", theme.ZoomInIcon()},
+	{"ZoomOutIcon", theme.ZoomOutIcon()},
+
+	{"MoveDownIcon", theme.MoveDownIcon()},
+	{"MoveUpIcon", theme.MoveUpIcon()},
+
+	{"NavigateBackIcon", theme.NavigateBackIcon()},
+	{"NavigateNextIcon", theme.NavigateNextIcon()},
+
+	{"MailAttachmentIcon", theme.MailAttachmentIcon()},
 	{"MailComposeIcon", theme.MailComposeIcon()},
 	{"MailForwardIcon", theme.MailForwardIcon()},
 	{"MailReplyIcon", theme.MailReplyIcon()},
 	{"MailReplyAllIcon", theme.MailReplyAllIcon()},
-
-	{"NavigateBackIcon", theme.NavigateBackIcon()},
-	{"NavigateNextIcon", theme.NavigateNextIcon()},
+	{"MailSendIcon", theme.MailSendIcon()},
 }

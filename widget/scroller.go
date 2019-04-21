@@ -31,7 +31,10 @@ func (s *scrollRenderer) updatePosition() {
 
 func (s *scrollRenderer) updateBarPosition() {
 	barSize := s.barSizeVertical()
-	barRatio := float32(s.scroll.Offset.Y) / float32(s.scroll.Content.Size().Height-s.scroll.Size().Height)
+	barRatio := float32(0.0)
+	if s.scroll.Offset.Y != 0 {
+		barRatio = float32(s.scroll.Offset.Y) / float32(s.scroll.Content.Size().Height-s.scroll.Size().Height)
+	}
 	barOff := int(float32(s.scroll.size.Height-barSize.Height) * barRatio)
 
 	s.vertBar.Resize(barSize)
@@ -50,7 +53,7 @@ func (s *scrollRenderer) barSizeVertical() fyne.Size {
 
 func (s *scrollRenderer) Layout(size fyne.Size) {
 	c := s.scroll.Content
-	c.Resize(c.MinSize())
+	c.Resize(c.MinSize().Union(size))
 
 	s.vertBar.Resize(fyne.NewSize(theme.ScrollBarSize(), size.Height))
 	s.vertBar.Move(fyne.NewPos(size.Width-theme.ScrollBarSize(), 0))
@@ -77,6 +80,9 @@ func (s *scrollRenderer) BackgroundColor() color.Color {
 
 func (s *scrollRenderer) Objects() []fyne.CanvasObject {
 	return s.objects
+}
+
+func (s *scrollRenderer) Destroy() {
 }
 
 // ScrollContainer defines a container that is smaller than the Content.
@@ -138,8 +144,8 @@ func (s *ScrollContainer) CreateRenderer() fyne.WidgetRenderer {
 	return &scrollRenderer{scroll: s, vertBar: bar, objects: []fyne.CanvasObject{s.Content, bar}}
 }
 
-// NewScroller creates a scrollable parent wrapping the specified content.
+// NewScrollContainer creates a scrollable parent wrapping the specified content.
 // Note that this may cause the MinSize to be smaller than that of the passed objects.
-func NewScroller(content fyne.CanvasObject) *ScrollContainer {
+func NewScrollContainer(content fyne.CanvasObject) *ScrollContainer {
 	return &ScrollContainer{Content: content}
 }

@@ -7,6 +7,7 @@ type Canvas interface {
 	SetContent(CanvasObject)
 	Refresh(CanvasObject)
 	Focus(Focusable)
+	Unfocus()
 	Focused() Focusable
 
 	Size() Size
@@ -17,4 +18,5 @@ type Canvas interface {
 	SetOnTypedRune(func(rune))
 	OnTypedKey() func(*KeyEvent)
 	SetOnTypedKey(func(*KeyEvent))
+	AddShortcut(shortcut Shortcut, handler func(shortcut Shortcut))
 }

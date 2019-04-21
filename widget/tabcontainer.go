@@ -49,6 +49,8 @@ func (t *TabContainer) MinSize() fyne.Size {
 // Show this widget, if it was previously hidden
 func (t *TabContainer) Show() {
 	t.show(t)
+	t.SelectTabIndex(t.current)
+	Renderer(t).Refresh()
 }
 
 // Hide this widget, if it was previously visible
@@ -71,13 +73,22 @@ func (t *TabContainer) CurrentTab() *TabItem {
 	return t.Items[t.current]
 }
 
-// SelectTabIndex sets the TabItem at the specifie index to be selected and it's content visible.
+// SelectTabIndex sets the TabItem at the specific index to be selected and it's content visible.
 func (t *TabContainer) SelectTabIndex(index int) {
 	if index < 0 || index >= len(t.Items) {
 		return
 	}
 
 	t.current = index
+
+	for i, child := range t.Items {
+		if i == t.current {
+			child.Content.Show()
+		} else {
+			child.Content.Hide()
+		}
+	}
+
 	Refresh(t)
 }
 
@@ -127,8 +138,9 @@ func (t *TabContainer) CreateRenderer() fyne.WidgetRenderer {
 		contents = append(contents, item.Content)
 	}
 
-	objects := append(contents, buttons)
-	return &tabContainerRenderer{tabBar: buttons, objects: objects, container: t}
+	line := canvas.NewRectangle(theme.ButtonColor())
+	objects := append(contents, line, buttons)
+	return &tabContainerRenderer{tabBar: buttons, line: line, objects: objects, container: t}
 }
 
 // NewTabContainer creates a new tab bar widget that allows the user to choose between different visible containers
@@ -141,6 +153,7 @@ func NewTabContainer(items ...*TabItem) *TabContainer {
 
 type tabContainerRenderer struct {
 	tabBar *Box
+	line   *canvas.Rectangle
 
 	objects   []fyne.CanvasObject
 	container *TabContainer
@@ -154,19 +167,23 @@ func (t *tabContainerRenderer) MinSize() fyne.Size {
 		childMin = childMin.Union(child.Content.MinSize())
 	}
 
-	return fyne.NewSize(fyne.Max(buttonsMin.Width, childMin.Width), buttonsMin.Height+childMin.Height)
+	return fyne.NewSize(fyne.Max(buttonsMin.Width, childMin.Width),
+		buttonsMin.Height+childMin.Height+theme.Padding())
 }
 
 func (t *tabContainerRenderer) Layout(size fyne.Size) {
 	buttonHeight := t.tabBar.MinSize().Height
 	t.tabBar.Resize(fyne.NewSize(size.Width, buttonHeight))
+	t.line.Move(fyne.NewPos(0, buttonHeight))
+	t.line.Resize(fyne.NewSize(size.Width, theme.Padding()))
 
 	child := t.container.Items[t.container.current].Content
-	child.Move(fyne.NewPos(0, buttonHeight))
-	child.Resize(fyne.NewSize(size.Width, size.Height-buttonHeight))
+	child.Move(fyne.NewPos(0, buttonHeight+theme.Padding()))
+	child.Resize(fyne.NewSize(size.Width, size.Height-buttonHeight-theme.Padding()))
 }
 
 func (t *tabContainerRenderer) ApplyTheme() {
+	t.line.FillColor = theme.ButtonColor()
 }
 
 func (t *tabContainerRenderer) BackgroundColor() color.Color {
@@ -181,14 +198,6 @@ func (t *tabContainerRenderer) Refresh() {
 	Renderer(t.tabBar).Refresh()
 	t.Layout(t.container.Size())
 
-	for i, child := range t.container.Items {
-		if i == t.container.current {
-			child.Content.Show()
-		} else {
-			child.Content.Hide()
-		}
-	}
-
 	canvas.Refresh(t.container)
 
 	for i, button := range t.tabBar.Children {
@@ -199,4 +208,7 @@ func (t *tabContainerRenderer) Refresh() {
 		}
 		Renderer(button.(*Button)).Refresh()
 	}
+}
+
+func (t *tabContainerRenderer) Destroy() {
 }

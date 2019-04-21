@@ -20,6 +20,20 @@ type radioRenderer struct {
 	radio   *Radio
 }
 
+func removeDuplicates(options []string) []string {
+	var result []string
+	found := make(map[string]bool)
+
+	for _, option := range options {
+		if _, ok := found[option]; !ok {
+			found[option] = true
+			result = append(result, option)
+		}
+	}
+
+	return result
+}
+
 // MinSize calculates the minimum size of a radio item.
 // This is based on the contained text, the radio icon and a standard amount of padding
 // between each item.
@@ -48,8 +62,7 @@ func (r *radioRenderer) Layout(size fyne.Size) {
 		item.label.Move(fyne.NewPos(theme.IconInlineSize()+theme.Padding(), y))
 
 		item.icon.Resize(fyne.NewSize(theme.IconInlineSize(), theme.IconInlineSize()))
-		item.icon.Move(fyne.NewPos(
-			(size.Width-theme.IconInlineSize()-item.label.MinSize().Width)/2,
+		item.icon.Move(fyne.NewPos(0,
 			y+(labelSize.Height-theme.IconInlineSize())/2))
 
 		y += itemHeight
@@ -70,6 +83,26 @@ func (r *radioRenderer) BackgroundColor() color.Color {
 }
 
 func (r *radioRenderer) Refresh() {
+	r.radio.removeDuplicateOptions()
+
+	if len(r.items) < len(r.radio.Options) {
+		for i := len(r.items); i < len(r.radio.Options); i++ {
+			option := r.radio.Options[i]
+			icon := canvas.NewImageFromResource(theme.RadioButtonIcon())
+
+			text := canvas.NewText(option, theme.TextColor())
+			text.Alignment = fyne.TextAlignLeading
+
+			r.objects = append(r.objects, icon, text)
+			r.items = append(r.items, &radioRenderItem{icon, text})
+		}
+		r.Layout(r.radio.Size())
+	} else if len(r.items) > len(r.radio.Options) {
+		total := len(r.radio.Options)
+		r.items = r.items[:total]
+		r.objects = r.objects[:total*2]
+	}
+
 	for i, item := range r.items {
 		option := r.radio.Options[i]
 		item.label.Text = option
@@ -86,6 +119,9 @@ func (r *radioRenderer) Refresh() {
 
 func (r *radioRenderer) Objects() []fyne.CanvasObject {
 	return r.objects
+}
+
+func (r *radioRenderer) Destroy() {
 }
 
 // Radio widget has a list of text labels and radio check icons next to each.
@@ -125,10 +161,17 @@ func (r *Radio) Hide() {
 	r.hide(r)
 }
 
+// Append adds a new option to the end of a Radio widget.
+func (r *Radio) Append(option string) {
+	r.Options = append(r.Options, option)
+
+	Refresh(r)
+}
+
 // Tapped is called when a pointer tapped event is captured and triggers any change handler
 func (r *Radio) Tapped(event *fyne.PointEvent) {
 	index := (event.Position.Y - theme.Padding()) / r.itemHeight()
-	if index < 0 || index >= len(r.Options) { // in the padding
+	if event.Position.Y < theme.Padding() || index >= len(r.Options) { // in the padding
 		return
 	}
 	clicked := r.Options[index]
@@ -158,7 +201,7 @@ func (r *Radio) CreateRenderer() fyne.WidgetRenderer {
 		icon := canvas.NewImageFromResource(theme.RadioButtonIcon())
 
 		text := canvas.NewText(option, theme.TextColor())
-		text.Alignment = fyne.TextAlignCenter
+		text.Alignment = fyne.TextAlignLeading
 
 		objects = append(objects, icon, text)
 		items = append(items, &radioRenderItem{icon, text})
@@ -166,8 +209,24 @@ func (r *Radio) CreateRenderer() fyne.WidgetRenderer {
 
 	return &radioRenderer{items, objects, r}
 }
+
+// SetSelected sets the radio option, it can be used to set a default option.
+func (r *Radio) SetSelected(option string) {
+	if r.Selected == option {
+		return
+	}
+
+	r.Selected = option
+
+	Renderer(r).Refresh()
+}
+
 func (r *Radio) itemHeight() int {
-	return (r.MinSize().Height / len(r.Options))
+	return r.MinSize().Height / len(r.Options)
+}
+
+func (r *Radio) removeDuplicateOptions() {
+	r.Options = removeDuplicates(r.Options)
 }
 
 // NewRadio creates a new radio widget with the set options and change handler
@@ -178,6 +237,8 @@ func NewRadio(options []string, changed func(string)) *Radio {
 		"",
 		changed,
 	}
+
+	r.removeDuplicateOptions()
 
 	Renderer(r).Layout(r.MinSize())
 	return r

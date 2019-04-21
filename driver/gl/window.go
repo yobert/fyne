@@ -4,9 +4,10 @@ import (
 	"bytes"
 	"image"
 	_ "image/png" // for the icon
-	"log"
 	"os"
+	"runtime"
 	"strconv"
+	"time"
 
 	"fyne.io/fyne"
 	"fyne.io/fyne/driver/desktop"
@@ -37,16 +38,20 @@ type window struct {
 	title    string
 	icon     fyne.Resource
 
+	clipboard fyne.Clipboard
+
 	master     bool
 	fullScreen bool
 	fixedSize  bool
+	centered   bool
 	padded     bool
 	visible    bool
 
 	mousePos fyne.Position
 	onClosed func()
 
-	xpos, ypos int
+	xpos, ypos   int
+	ignoreResize bool
 }
 
 func (w *window) Title() string {
@@ -85,9 +90,23 @@ func (w *window) SetFullScreen(full bool) {
 }
 
 func (w *window) CenterOnScreen() {
-	viewWidth, viewHeight := w.sizeOnScreen()
+	w.centered = true
+	// if window is currently visible, make it centered
+	if w.visible {
+		w.centerOnScreen()
+	}
+}
 
-	runOnMain(func() {
+// centerOnScreen handles the logic for centering a window
+func (w *window) centerOnScreen() {
+	// exit immediately if window is not supposed to be centered
+	if !w.centered {
+		return
+	}
+
+	runOnMainAsync(func() {
+		viewWidth, viewHeight := w.viewport.GetSize()
+
 		// get window dimensions in pixels
 		monitor := w.getMonitorForWindow()
 		monMode := monitor.GetVideoMode()
@@ -101,26 +120,37 @@ func (w *window) CenterOnScreen() {
 
 		// set new window coordinates
 		w.viewport.SetPos(newX, newY)
-	})
+	}) // end of runOnMainAsync(){}
 }
 
-// sizeOnScreen gets the size of a window content in screen pixels
-func (w *window) sizeOnScreen() (int, int) {
+// minSizeOnScreen gets the size of a window content in screen pixels
+func (w *window) minSizeOnScreen() (int, int) {
 	// get current size of content inside the window
-	winContentSize := w.canvas.content.MinSize()
+	winContentSize := fyne.NewSize(0, 0)
+	if w.canvas != nil && w.canvas.content != nil {
+		winContentSize = w.canvas.content.MinSize()
+	}
+
 	// add padding, if required
 	if w.Padded() {
 		pad := theme.Padding() * 2
 		winContentSize = fyne.NewSize(winContentSize.Width+pad, winContentSize.Height+pad)
 	}
-	// content size can be scaled, so factor that in to determining window size
-	scale := w.canvas.Scale()
 
 	// calculate how many pixels will be used at this scale
-	viewWidth := int(float32(winContentSize.Width) * scale)
-	viewHeight := int(float32(winContentSize.Height) * scale)
+	viewWidth := scaleInt(w.canvas, winContentSize.Width)
+	viewHeight := scaleInt(w.canvas, winContentSize.Height)
 
 	return viewWidth, viewHeight
+}
+
+func (w *window) RequestFocus() {
+	runOnMainAsync(func() {
+		err := w.viewport.Focus()
+		if err != nil {
+			fyne.LogError("Error requesting focus", err)
+		}
+	})
 }
 
 func (w *window) Resize(size fyne.Size) {
@@ -168,26 +198,41 @@ func (w *window) Icon() fyne.Resource {
 
 func (w *window) SetIcon(icon fyne.Resource) {
 	w.icon = icon
+	if icon == nil {
+		appIcon := fyne.CurrentApp().Icon()
+		if appIcon != nil {
+			w.SetIcon(appIcon)
+		}
+		return
+	}
+
+	pix, _, err := image.Decode(bytes.NewReader(icon.Content()))
+	if err != nil {
+		fyne.LogError("Failed to decode image for window icon", err)
+		return
+	}
+
+	w.viewport.SetIcon([]image.Image{pix})
 }
 
 func (w *window) fitContent() {
+	w.canvas.Lock()
+	defer w.canvas.Unlock()
 	if w.canvas.content == nil {
 		return
 	}
 
-	runOnMainAsync(func() {
-		winWidth, winHeight := w.sizeOnScreen()
-		if w.fixedSize {
-			w.viewport.SetSizeLimits(winWidth, winHeight, winWidth, winHeight)
-		} else {
-			w.viewport.SetSizeLimits(winWidth, winHeight, glfw.DontCare, glfw.DontCare)
-		}
+	minWidth, minHeight := w.minSizeOnScreen()
+	if w.fixedSize {
+		w.viewport.SetSizeLimits(minWidth, minHeight, minWidth, minHeight)
+	} else {
+		w.viewport.SetSizeLimits(minWidth, minHeight, glfw.DontCare, glfw.DontCare)
+	}
 
-		width, height := w.viewport.GetSize()
-		if width < winWidth || height < winHeight {
-			w.viewport.SetSize(winWidth, winHeight)
-		}
-	})
+	width, height := w.viewport.GetSize()
+	if width < minWidth || height < minHeight {
+		w.viewport.SetSize(fyne.Max(width, minWidth), fyne.Max(height, minHeight))
+	}
 }
 
 func (w *window) SetOnClosed(closed func()) {
@@ -195,19 +240,19 @@ func (w *window) SetOnClosed(closed func()) {
 }
 
 func scaleForDpi(xdpi int) float32 {
-	if xdpi > 1000 { // assume that this is a mistake and bail
+	switch {
+	case xdpi > 1000:
+		// assume that this is a mistake and bail
+		return float32(1.0)
+	case xdpi > 192:
+		return float32(1.5)
+	case xdpi > 144:
+		return float32(1.35)
+	case xdpi > 120:
+		return float32(1.2)
+	default:
 		return float32(1.0)
 	}
-
-	if xdpi > 192 {
-		return float32(1.5)
-	} else if xdpi > 144 {
-		return float32(1.35)
-	} else if xdpi > 120 {
-		return float32(1.2)
-	}
-
-	return float32(1.0)
 }
 
 func (w *window) getMonitorForWindow() *glfw.Monitor {
@@ -238,7 +283,7 @@ func (w *window) detectScale() float32 {
 	if env != "" {
 		scale, err := strconv.ParseFloat(env, 32)
 		if err != nil {
-			log.Println("Error reading scale:", err)
+			fyne.LogError("Error reading scale", err)
 		} else if scale != 0 {
 			return float32(scale)
 		}
@@ -259,6 +304,13 @@ func (w *window) Show() {
 
 		if w.fullScreen {
 			w.SetFullScreen(true)
+		} else if w.centered {
+			w.centerOnScreen()
+		}
+
+		// show top canvas element
+		if w.canvas.content != nil {
+			w.canvas.content.Show()
 		}
 	})
 }
@@ -267,6 +319,11 @@ func (w *window) Hide() {
 	runOnMainAsync(func() {
 		w.viewport.Hide()
 		w.visible = false
+
+		// hide top canvas element
+		if w.canvas.Content() != nil {
+			w.canvas.Content().Hide()
+		}
 	})
 }
 
@@ -277,6 +334,14 @@ func (w *window) Close() {
 func (w *window) ShowAndRun() {
 	w.Show()
 	fyne.CurrentApp().Driver().Run()
+}
+
+//Clipboard returns the system clipboard
+func (w *window) Clipboard() fyne.Clipboard {
+	if w.clipboard == nil {
+		w.clipboard = &clipboard{window: w.viewport}
+	}
+	return w.clipboard
 }
 
 func (w *window) Content() fyne.CanvasObject {
@@ -290,13 +355,21 @@ func (w *window) resize(size fyne.Size) {
 	}
 
 	w.canvas.content.Resize(size)
-	w.canvas.setDirty(true)
+	w.canvas.Refresh(w.canvas.content)
 }
 
 func (w *window) SetContent(content fyne.CanvasObject) {
+	// hide old canvas element
+	if w.visible && w.canvas.Content() != nil {
+		w.canvas.Content().Hide()
+	}
+
 	w.canvas.SetContent(content)
 	min := content.MinSize()
-	w.canvas.SetScale(w.detectScale())
+	// show top canvas element
+	if w.visible && w.canvas.Content() != nil {
+		w.canvas.Content().Show()
+	}
 
 	if w.Padded() {
 		pad := theme.Padding() * 2
@@ -315,6 +388,13 @@ func (w *window) Canvas() fyne.Canvas {
 func (w *window) closed(viewport *glfw.Window) {
 	viewport.SetShouldClose(true)
 
+	w.canvas.walkObjects(w.canvas.content, fyne.NewPos(0, 0), true, func(obj fyne.CanvasObject, _ fyne.Position) {
+		switch co := obj.(type) {
+		case fyne.Widget:
+			widget.DestroyRenderer(co)
+		}
+	})
+
 	// trigger callbacks
 	if w.onClosed != nil {
 		w.onClosed()
@@ -331,20 +411,47 @@ func (w *window) moved(viewport *glfw.Window, x, y int) {
 		return
 	}
 
-	ratio := scale / newScale
-	newWidth, newHeight := viewport.GetSize()
-	newWidth = int(float32(newWidth) / ratio)
-	newHeight = int(float32(newHeight) / ratio)
-
+	contentSize := w.canvas.content.Size()
 	w.canvas.SetScale(newScale)
-	viewport.SetSize(newWidth, newHeight)
+
+	// this can trigger resize events that we need to ignore
+	w.ignoreResize = true
+	w.fitContent()
+	w.canvas.content.Resize(contentSize)
+	w.canvas.setDirty(true)
+
+	if w.Padded() {
+		pad := theme.Padding() * 2
+		contentSize = fyne.NewSize(contentSize.Width+pad, contentSize.Height+pad)
+	}
+
+	newWidth, newHeight := scaleInt(w.canvas, contentSize.Width),
+		scaleInt(w.canvas, contentSize.Height)
+	w.viewport.SetSize(newWidth, newHeight)
+
+	go func() {
+		// attempt the resizing until it works... (Gnome and others don't support resize whist moving)
+		for ww, wh := viewport.GetSize(); ww != newWidth || wh != newHeight; {
+			time.Sleep(time.Second / 10)
+			runOnMain(func() {
+				w.viewport.SetSize(newWidth, newHeight)
+				ww, wh = viewport.GetSize()
+			})
+		}
+		w.ignoreResize = false
+	}()
 }
 
 func (w *window) resized(viewport *glfw.Window, width, height int) {
+	if w.ignoreResize {
+		return
+	}
 	w.resize(fyne.NewSize(unscaleInt(w.canvas, width), unscaleInt(w.canvas, height)))
 }
 
 func (w *window) frameSized(viewport *glfw.Window, width, height int) {
+	winWidth, _ := w.viewport.GetSize()
+	w.canvas.texScale = float32(width) / float32(winWidth) // This will be > 1.0 on a HiDPI screen
 	gl.Viewport(0, 0, int32(width), int32(height))
 }
 
@@ -353,10 +460,10 @@ func (w *window) refresh(viewport *glfw.Window) {
 	w.canvas.setDirty(true)
 }
 
-func findMouseObj(canvas *glCanvas, mouse fyne.Position) (fyne.CanvasObject, int, int) {
+func findMouseObj(canvas *glCanvas, mouse fyne.Position, scroll bool) (fyne.CanvasObject, int, int) {
 	found := canvas.content
 	foundX, foundY := 0, 0
-	canvas.walkObjects(canvas.content, fyne.NewPos(0, 0), func(walked fyne.CanvasObject, pos fyne.Position) {
+	canvas.walkObjects(canvas.content, fyne.NewPos(0, 0), false, func(walked fyne.CanvasObject, pos fyne.Position) {
 		if mouse.X < pos.X || mouse.Y < pos.Y {
 			return
 		}
@@ -371,14 +478,18 @@ func findMouseObj(canvas *glCanvas, mouse fyne.Position) (fyne.CanvasObject, int
 			return
 		}
 
+		if scroll {
+			if _, ok := walked.(fyne.Scrollable); ok {
+				found = walked
+				foundX, foundY = pos.X, pos.Y
+			}
+			return
+		}
 		switch walked.(type) {
-		case fyne.Tappable:
+		case fyne.Tappable, desktop.Mouseable:
 			found = walked
 			foundX, foundY = pos.X, pos.Y
 		case fyne.Focusable:
-			found = walked
-			foundX, foundY = pos.X, pos.Y
-		case fyne.Scrollable:
 			found = walked
 			foundX, foundY = pos.X, pos.Y
 		}
@@ -390,7 +501,7 @@ func findMouseObj(canvas *glCanvas, mouse fyne.Position) (fyne.CanvasObject, int
 func (w *window) mouseMoved(viewport *glfw.Window, xpos float64, ypos float64) {
 	w.mousePos = fyne.NewPos(unscaleInt(w.canvas, int(xpos)), unscaleInt(w.canvas, int(ypos)))
 
-	co, _, _ := findMouseObj(w.canvas, w.mousePos)
+	co, _, _ := findMouseObj(w.canvas, w.mousePos, false)
 	cursor := defaultCursor
 	switch wid := co.(type) {
 	case *widget.Entry:
@@ -406,13 +517,34 @@ func (w *window) mouseMoved(viewport *glfw.Window, xpos float64, ypos float64) {
 }
 
 func (w *window) mouseClicked(viewport *glfw.Window, button glfw.MouseButton, action glfw.Action, mod glfw.ModifierKey) {
-	co, x, y := findMouseObj(w.canvas, w.mousePos)
+	co, x, y := findMouseObj(w.canvas, w.mousePos, false)
 	ev := new(fyne.PointEvent)
 	pad := 0
 	if w.padded {
 		pad = theme.Padding()
 	}
 	ev.Position = fyne.NewPos(w.mousePos.X-pad-x, w.mousePos.Y-pad-y)
+
+	if wid, ok := co.(desktop.Mouseable); ok {
+		mev := new(desktop.MouseEvent)
+		mev.Position = ev.Position
+		mev.Button = convertMouseButton(button)
+		if action == glfw.Press {
+			go wid.MouseDown(mev)
+		} else if action == glfw.Release {
+			go wid.MouseUp(mev)
+		}
+	}
+
+	needsfocus := true
+	wid := w.canvas.Focused()
+	if wid != nil {
+		needsfocus = false
+		if wid.(fyne.CanvasObject) != co {
+			w.canvas.Unfocus()
+			needsfocus = true
+		}
+	}
 
 	switch wid := co.(type) {
 	case fyne.Tappable:
@@ -425,12 +557,14 @@ func (w *window) mouseClicked(viewport *glfw.Window, button glfw.MouseButton, ac
 			}
 		}
 	case fyne.Focusable:
-		w.canvas.Focus(wid)
+		if needsfocus == true {
+			w.canvas.Focus(wid)
+		}
 	}
 }
 
 func (w *window) mouseScrolled(viewport *glfw.Window, xoff float64, yoff float64) {
-	co, _, _ := findMouseObj(w.canvas, w.mousePos)
+	co, _, _ := findMouseObj(w.canvas, w.mousePos, true)
 
 	switch wid := co.(type) {
 	case fyne.Scrollable:
@@ -438,6 +572,17 @@ func (w *window) mouseScrolled(viewport *glfw.Window, xoff float64, yoff float64
 		ev.DeltaX = int(xoff * scrollSpeed)
 		ev.DeltaY = int(yoff * scrollSpeed)
 		wid.Scrolled(ev)
+	}
+}
+
+func convertMouseButton(button glfw.MouseButton) desktop.MouseButton {
+	switch button {
+	case glfw.MouseButton1:
+		return desktop.LeftMouseButton
+	case glfw.MouseButton2:
+		return desktop.RightMouseButton
+	default:
+		return 0
 	}
 }
 
@@ -498,68 +643,215 @@ func keyToName(key glfw.Key) fyne.KeyName {
 	case glfw.KeyF12:
 		return fyne.KeyF12
 
-	case glfw.KeyLeftShift:
-		fallthrough
-	case glfw.KeyRightShift:
-		return desktop.KeyShift
-	case glfw.KeyLeftControl:
-		fallthrough
-	case glfw.KeyRightControl:
-		return desktop.KeyControl
-	case glfw.KeyLeftAlt:
-		fallthrough
-	case glfw.KeyRightAlt:
-		return desktop.KeyAlt
-	case glfw.KeyLeftSuper:
-		fallthrough
-	case glfw.KeyRightSuper:
-		return desktop.KeySuper
-	case glfw.KeyMenu:
-		return desktop.KeyMenu
-
 	case glfw.KeyKPEnter:
 		return fyne.KeyEnter
+
+	// printable
+	case glfw.KeyA:
+		return fyne.KeyA
+	case glfw.KeyB:
+		return fyne.KeyB
+	case glfw.KeyC:
+		return fyne.KeyC
+	case glfw.KeyD:
+		return fyne.KeyD
+	case glfw.KeyE:
+		return fyne.KeyE
+	case glfw.KeyF:
+		return fyne.KeyF
+	case glfw.KeyG:
+		return fyne.KeyG
+	case glfw.KeyH:
+		return fyne.KeyH
+	case glfw.KeyI:
+		return fyne.KeyI
+	case glfw.KeyJ:
+		return fyne.KeyJ
+	case glfw.KeyK:
+		return fyne.KeyK
+	case glfw.KeyL:
+		return fyne.KeyL
+	case glfw.KeyM:
+		return fyne.KeyM
+	case glfw.KeyN:
+		return fyne.KeyN
+	case glfw.KeyO:
+		return fyne.KeyO
+	case glfw.KeyP:
+		return fyne.KeyP
+	case glfw.KeyQ:
+		return fyne.KeyQ
+	case glfw.KeyR:
+		return fyne.KeyR
+	case glfw.KeyS:
+		return fyne.KeyS
+	case glfw.KeyT:
+		return fyne.KeyT
+	case glfw.KeyU:
+		return fyne.KeyU
+	case glfw.KeyV:
+		return fyne.KeyV
+	case glfw.KeyW:
+		return fyne.KeyW
+	case glfw.KeyX:
+		return fyne.KeyX
+	case glfw.KeyY:
+		return fyne.KeyY
+	case glfw.KeyZ:
+		return fyne.KeyZ
+	case glfw.Key0:
+		return fyne.Key0
+	case glfw.Key1:
+		return fyne.Key1
+	case glfw.Key2:
+		return fyne.Key2
+	case glfw.Key3:
+		return fyne.Key3
+	case glfw.Key4:
+		return fyne.Key4
+	case glfw.Key5:
+		return fyne.Key5
+	case glfw.Key6:
+		return fyne.Key6
+	case glfw.Key7:
+		return fyne.Key7
+	case glfw.Key8:
+		return fyne.Key8
+	case glfw.Key9:
+		return fyne.Key9
+
+	// desktop
+	case glfw.KeyLeftShift:
+		return desktop.KeyShiftLeft
+	case glfw.KeyRightShift:
+		return desktop.KeyShiftRight
+	case glfw.KeyLeftControl:
+		return desktop.KeyControlLeft
+	case glfw.KeyRightControl:
+		return desktop.KeyControlRight
+	case glfw.KeyLeftAlt:
+		return desktop.KeyAltLeft
+	case glfw.KeyRightAlt:
+		return desktop.KeyAltRight
+	case glfw.KeyLeftSuper:
+		return desktop.KeySuperLeft
+	case glfw.KeyRightSuper:
+		return desktop.KeySuperRight
+	case glfw.KeyMenu:
+		return desktop.KeyMenu
 	}
 	return ""
 }
 
 func (w *window) keyPressed(viewport *glfw.Window, key glfw.Key, scancode int, action glfw.Action, mods glfw.ModifierKey) {
-	if w.canvas.Focused() == nil && w.canvas.onTypedKey == nil {
+	keyName := keyToName(key)
+	if keyName == "" {
 		return
 	}
-	if action != glfw.Press { // ignore key up
+	keyEvent := &fyne.KeyEvent{Name: keyName}
+
+	if action == glfw.Press {
+		if w.canvas.Focused() != nil {
+			if focused, ok := w.canvas.Focused().(desktop.Keyable); ok {
+				go focused.KeyDown(keyEvent)
+			}
+		} else if w.canvas.onKeyDown != nil {
+			go w.canvas.onKeyDown(keyEvent)
+		}
+	} else if action == glfw.Release { // ignore key up in core events
+		if w.canvas.Focused() != nil {
+			if focused, ok := w.canvas.Focused().(desktop.Keyable); ok {
+				go focused.KeyUp(keyEvent)
+			}
+		} else if w.canvas.onKeyDown != nil {
+			go w.canvas.onKeyUp(keyEvent)
+		}
+		return
+	} // key repeat will fall through to TypedKey and TypedShortcut
+
+	keyDesktopModifier := desktopModifier(mods)
+	var shortcut fyne.Shortcut
+	ctrlMod := desktop.ControlModifier
+	if runtime.GOOS == "darwin" {
+		ctrlMod = desktop.SuperModifier
+	}
+	if keyDesktopModifier == ctrlMod {
+		switch keyName {
+		case fyne.KeyV:
+			// detect paste shortcut
+			shortcut = &fyne.ShortcutPaste{
+				Clipboard: w.Clipboard(),
+			}
+		case fyne.KeyC:
+			// detect copy shortcut
+			shortcut = &fyne.ShortcutCopy{
+				Clipboard: w.Clipboard(),
+			}
+		case fyne.KeyX:
+			// detect cut shortcut
+			shortcut = &fyne.ShortcutCut{
+				Clipboard: w.Clipboard(),
+			}
+		}
+	}
+	if shortcut == nil && keyDesktopModifier != 0 {
+		shortcut = &desktop.CustomShortcut{
+			KeyName:  keyName,
+			Modifier: keyDesktopModifier,
+		}
+	}
+
+	if shortcutable, ok := w.canvas.Focused().(fyne.Shortcutable); ok {
+		if shortcutable.TypedShortcut(shortcut) {
+			return
+		}
+	} else if w.canvas.shortcut.TypedShortcut(shortcut) {
 		return
 	}
 
-	if key <= glfw.KeyWorld1 { // filter printable characters handled in charModInput
-		return
-	}
-
-	ev := new(fyne.KeyEvent)
-	ev.Name = keyToName(key)
-
+	// No shortcut detected, pass down to TypedKey
 	if w.canvas.Focused() != nil {
-		go w.canvas.Focused().TypedKey(ev)
-	}
-	if w.canvas.onTypedKey != nil {
-		go w.canvas.onTypedKey(ev)
+		go w.canvas.Focused().TypedKey(keyEvent)
+	} else if w.canvas.onTypedKey != nil {
+		go w.canvas.onTypedKey(keyEvent)
 	}
 }
 
+func desktopModifier(mods glfw.ModifierKey) desktop.Modifier {
+	var m desktop.Modifier
+	if (mods & glfw.ModShift) != 0 {
+		m |= desktop.ShiftModifier
+	}
+	if (mods & glfw.ModControl) != 0 {
+		m |= desktop.ControlModifier
+	}
+	if (mods & glfw.ModAlt) != 0 {
+		m |= desktop.AltModifier
+	}
+	if (mods & glfw.ModSuper) != 0 {
+		m |= desktop.SuperModifier
+	}
+	return m
+}
+
+// charModInput defines the character with modifiers callback which is called when a
+// Unicode character is input regardless of what modifier keys are used.
+//
+// The character with modifiers callback is intended for implementing custom
+// Unicode character input. Characters do not map 1:1 to physical keys,
+// as a key may produce zero, one or more characters.
 func (w *window) charModInput(viewport *glfw.Window, char rune, mods glfw.ModifierKey) {
+	if mods != 0 && mods != glfw.ModShift { // don't progress if it's part of a combination
+		return
+	}
 	if w.canvas.Focused() == nil && w.canvas.onTypedRune == nil {
 		return
 	}
 
-	if mods == 0 || mods == glfw.ModShift {
-		if w.canvas.Focused() != nil {
-			w.canvas.Focused().TypedRune(char)
-		}
-		if w.canvas.onTypedRune != nil {
-			w.canvas.onTypedRune(char)
-		}
-
-		return
+	if w.canvas.Focused() != nil {
+		w.canvas.Focused().TypedRune(char)
+	} else if w.canvas.onTypedRune != nil {
+		w.canvas.onTypedRune(char)
 	}
 }
 
@@ -568,35 +860,44 @@ func (d *gLDriver) CreateWindow(title string) fyne.Window {
 	runOnMain(func() {
 		master := len(d.windows) == 0
 		if master {
-			glfw.Init()
+			err := glfw.Init()
+			if err != nil {
+				fyne.LogError("failed to initialise GLFW", err)
+				return
+			}
+
 			initCursors()
 		}
 
 		// make the window hidden, we will set it up and then show it later
 		glfw.WindowHint(glfw.Visible, 0)
 
-		glfw.WindowHint(glfw.ContextVersionMajor, 3)
-		glfw.WindowHint(glfw.ContextVersionMinor, 2)
-		glfw.WindowHint(glfw.OpenGLProfile, glfw.OpenGLCoreProfile)
-		glfw.WindowHint(glfw.OpenGLForwardCompatible, glfw.True)
+		glfw.WindowHint(glfw.ContextVersionMajor, 2)
+		glfw.WindowHint(glfw.ContextVersionMinor, 0)
 
-		win, _ := glfw.CreateWindow(10, 10, title, nil, nil)
+		win, err := glfw.CreateWindow(10, 10, title, nil, nil)
+		if err != nil {
+			fyne.LogError("window creation error", err)
+			return
+		}
 		win.MakeContextCurrent()
 
-		iconRes := fyne.CurrentApp().Icon()
-		if iconRes != nil {
-			icon, _, _ := image.Decode(bytes.NewReader(iconRes.Content()))
-			win.SetIcon([]image.Image{icon})
-		}
-
 		if master {
-			gl.Init()
+			err := gl.Init()
+			if err != nil {
+				fyne.LogError("failed to initialise OpenGL", err)
+				return
+			}
+
 			gl.Disable(gl.DEPTH_TEST)
 		}
 		ret = &window{viewport: win, title: title}
 		ret.canvas = newCanvas(ret)
 		ret.master = master
 		ret.padded = true
+		ret.canvas.SetScale(ret.detectScale())
+		ret.canvas.texScale = 1.0
+		ret.SetIcon(ret.icon) // if this is nil we will get the app icon
 		d.windows = append(d.windows, ret)
 
 		win.SetCloseCallback(ret.closed)

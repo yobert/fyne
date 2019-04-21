@@ -75,29 +75,32 @@ func (d *gLDriver) runGL() {
 			clearFontCache()
 		case <-fps.C:
 			glfw.PollEvents()
-			for i, win := range d.windows {
+			newWindows := []fyne.Window{}
+			reassign := false
+			for _, win := range d.windows {
 				viewport := win.(*window).viewport
 
-				canvas := win.(*window).canvas
-				d.freeDirtyTextures(canvas)
-
 				if viewport.ShouldClose() {
+					reassign = true
 					// remove window from window list
-					d.windows = append(d.windows[:i], d.windows[i+1:]...)
 					viewport.Destroy()
 
 					if win.(*window).master {
-						close(d.done)
+						d.Quit()
 					}
 					continue
+				} else {
+					newWindows = append(newWindows, win)
 				}
 
+				canvas := win.(*window).canvas
 				if !canvas.isDirty() {
 					continue
 				}
+				d.freeDirtyTextures(canvas)
+
 				viewport.MakeContextCurrent()
 				gl.UseProgram(canvas.program)
-				win.(*window).fitContent()
 
 				view := win.(*window)
 				updateGLContext(view)
@@ -106,6 +109,9 @@ func (d *gLDriver) runGL() {
 
 				view.viewport.SwapBuffers()
 				glfw.DetachCurrentContext()
+			}
+			if reassign {
+				d.windows = newWindows
 			}
 		}
 	}
@@ -122,7 +128,7 @@ func (d *gLDriver) freeDirtyTextures(canvas *glCanvas) {
 					delete(textures, obj)
 				}
 			}
-			canvas.walkObjects(object, fyne.NewPos(0, 0), freeWalked)
+			canvas.walkObjects(object, fyne.NewPos(0, 0), false, freeWalked)
 		default:
 			return
 		}

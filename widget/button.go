@@ -43,14 +43,14 @@ func (b *buttonRenderer) Layout(size fyne.Size) {
 			b.label.Resize(inner)
 			b.label.Move(fyne.NewPos(theme.Padding()*2, theme.Padding()))
 		} else {
-			offset := fyne.NewSize(theme.IconInlineSize()+theme.Padding(), 0)
+			offset := fyne.NewSize(theme.IconInlineSize(), 0)
 			labelSize := inner.Subtract(offset)
 			b.label.Resize(labelSize)
 			b.label.Move(fyne.NewPos(theme.IconInlineSize()+theme.Padding()*2, theme.Padding()))
 
 			b.icon.Resize(fyne.NewSize(theme.IconInlineSize(), theme.IconInlineSize()))
 			b.icon.Move(fyne.NewPos(
-				(size.Width-theme.IconInlineSize()-b.label.MinSize().Width)/2,
+				(size.Width-theme.IconInlineSize()-b.label.MinSize().Width-theme.Padding())/2,
 				(size.Height-theme.IconInlineSize())/2))
 		}
 	} else {
@@ -95,6 +95,9 @@ func (b *buttonRenderer) Refresh() {
 
 func (b *buttonRenderer) Objects() []fyne.CanvasObject {
 	return b.objects
+}
+
+func (b *buttonRenderer) Destroy() {
 }
 
 // Button widget has a text label and triggers an event func when clicked

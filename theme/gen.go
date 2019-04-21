@@ -23,14 +23,14 @@ func formatVariable(name string) string {
 func bundleFile(name string, filepath string, f *os.File) {
 	bytes, err := ioutil.ReadFile(filepath)
 	if err != nil {
-		fmt.Println("Unable to load file " + filepath)
+		fyne.LogError("Unable to load file "+filepath, err)
 		return
 	}
 	res := fyne.NewStaticResource(path.Base(filepath), bytes)
 
 	_, err = f.WriteString(fmt.Sprintf("var %s = %#v\n", formatVariable(name), res))
 	if err != nil {
-		fmt.Println("Unable to write to bundled file")
+		fyne.LogError("Unable to write to bundled file", err)
 	}
 }
 
@@ -62,13 +62,13 @@ func openFile(filename string) *os.File {
 	_, dirname, _, _ := runtime.Caller(0)
 	f, err := os.Create(path.Join(path.Dir(dirname), filename))
 	if err != nil {
-		fmt.Println("Unable to open file " + filename)
+		fyne.LogError("Unable to open file "+filename, err)
 		return nil
 	}
 
 	_, err = f.WriteString("package theme\n\nimport \"fyne.io/fyne\"\n\n")
 	if err != nil {
-		fmt.Println("Unable to write file " + filename)
+		fyne.LogError("Unable to write file "+filename, err)
 		return nil
 	}
 
@@ -100,26 +100,53 @@ func main() {
 		bundleIcon("cancel", theme, f)
 		bundleIcon("check", theme, f)
 		bundleIcon("delete", theme, f)
+		bundleIcon("search", theme, f)
+		bundleIcon("search-replace", theme, f)
+
 		bundleIcon("check-box", theme, f)
 		bundleIcon("check-box-blank", theme, f)
 		bundleIcon("radio-button", theme, f)
 		bundleIcon("radio-button-checked", theme, f)
 
+		bundleIcon("content-add", theme, f)
+		bundleIcon("content-remove", theme, f)
 		bundleIcon("content-cut", theme, f)
 		bundleIcon("content-copy", theme, f)
 		bundleIcon("content-paste", theme, f)
+		bundleIcon("content-redo", theme, f)
+		bundleIcon("content-undo", theme, f)
+
+		bundleIcon("document-create", theme, f)
+		bundleIcon("document-print", theme, f)
+		bundleIcon("document-save", theme, f)
 
 		bundleIcon("info", theme, f)
 		bundleIcon("question", theme, f)
 		bundleIcon("warning", theme, f)
 
 		bundleIcon("arrow-back", theme, f)
+		bundleIcon("arrow-down", theme, f)
 		bundleIcon("arrow-forward", theme, f)
+		bundleIcon("arrow-up", theme, f)
 
+		bundleIcon("folder", theme, f)
+		bundleIcon("folder-new", theme, f)
+		bundleIcon("folder-open", theme, f)
+		bundleIcon("help", theme, f)
+		bundleIcon("home", theme, f)
+
+		bundleIcon("mail-attachment", theme, f)
 		bundleIcon("mail-compose", theme, f)
 		bundleIcon("mail-forward", theme, f)
 		bundleIcon("mail-reply", theme, f)
 		bundleIcon("mail-reply_all", theme, f)
+		bundleIcon("mail-send", theme, f)
+
+		bundleIcon("view-fullscreen", theme, f)
+		bundleIcon("view-refresh", theme, f)
+		bundleIcon("view-zoom-fit", theme, f)
+		bundleIcon("view-zoom-in", theme, f)
+		bundleIcon("view-zoom-out", theme, f)
 	}
 	f.Close()
 }

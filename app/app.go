@@ -48,6 +48,10 @@ func (app *fyneApp) Run() {
 }
 
 func (app *fyneApp) Quit() {
+	for _, window := range app.driver.AllWindows() {
+		window.Close()
+	}
+
 	app.driver.Quit()
 	app.running = false
 }
@@ -84,7 +88,9 @@ func (app *fyneApp) applyThemeTo(content fyne.CanvasObject, canvas fyne.Canvas) 
 
 func (app *fyneApp) applyTheme() {
 	for _, window := range app.driver.AllWindows() {
-		window.Content().Move(fyne.NewPos(theme.Padding(), theme.Padding()))
+		if window.Padded() {
+			window.Content().Move(fyne.NewPos(theme.Padding(), theme.Padding()))
+		}
 		app.applyThemeTo(window.Content(), window.Canvas())
 	}
 }

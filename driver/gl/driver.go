@@ -3,7 +3,6 @@
 package gl
 
 import (
-	"log"
 	"sync"
 
 	"fyne.io/fyne"
@@ -30,7 +29,7 @@ func (d *gLDriver) CanvasForObject(obj fyne.CanvasObject) fyne.Canvas {
 func loadFont(data fyne.Resource) *truetype.Font {
 	loaded, err := truetype.Parse(data.Content())
 	if err != nil {
-		log.Println("Font load error", err)
+		fyne.LogError("font load error", err)
 	}
 
 	return loaded
@@ -48,6 +47,9 @@ func (d *gLDriver) RenderedTextSize(text string, size int, style fyne.TextStyle)
 }
 
 func (d *gLDriver) Quit() {
+	defer func() {
+		recover() // we could be called twice - no safe way to check if d.done is closed
+	}()
 	close(d.done)
 }
 

@@ -66,6 +66,29 @@ func TestEntry_SetPlaceHolder(t *testing.T) {
 	assert.Equal(t, 2, entry.textProvider().len())
 }
 
+func TestEntry_SetTextEmptyString(t *testing.T) {
+	entry := NewEntry()
+
+	assert.Equal(t, 0, entry.CursorColumn)
+
+	test.Type(entry, "test")
+	assert.Equal(t, 4, entry.CursorColumn)
+	entry.SetText("")
+	assert.Equal(t, 0, entry.CursorColumn)
+
+	entry = NewMultiLineEntry()
+	test.Type(entry, "test\ntest")
+
+	down := &fyne.KeyEvent{Name: fyne.KeyDown}
+	entry.TypedKey(down)
+
+	assert.Equal(t, 4, entry.CursorColumn)
+	assert.Equal(t, 1, entry.CursorRow)
+	entry.SetText("")
+	assert.Equal(t, 0, entry.CursorColumn)
+	assert.Equal(t, 0, entry.CursorRow)
+}
+
 func TestEntry_OnKeyDown(t *testing.T) {
 	entry := NewEntry()
 
@@ -427,4 +450,84 @@ func TestPasswordEntry_Obfuscation(t *testing.T) {
 	test.Type(entry, "Hié™שרה")
 	assert.Equal(t, "Hié™שרה", entry.Text)
 	assert.Equal(t, "*******", entryRenderTexts(entry)[0].Text)
+}
+
+func TestEntry_OnPaste(t *testing.T) {
+	clipboard := test.NewClipboard()
+	shortcut := &fyne.ShortcutPaste{Clipboard: clipboard}
+	tests := []struct {
+		name             string
+		entry            *Entry
+		clipboardContent string
+		wantText         string
+		wantRow, wantCol int
+	}{
+		{
+			name:             "singleline: empty content",
+			entry:            NewEntry(),
+			clipboardContent: "",
+			wantText:         "",
+			wantRow:          0,
+			wantCol:          0,
+		},
+		{
+			name:             "singleline: simple text",
+			entry:            NewEntry(),
+			clipboardContent: "clipboard content",
+			wantText:         "clipboard content",
+			wantRow:          0,
+			wantCol:          17,
+		},
+		{
+			name:             "singleline: UTF8 text",
+			entry:            NewEntry(),
+			clipboardContent: "Hié™שרה",
+			wantText:         "Hié™שרה",
+			wantRow:          0,
+			wantCol:          7,
+		},
+		{
+			name:             "singleline: with new line",
+			entry:            NewEntry(),
+			clipboardContent: "clipboard\ncontent",
+			wantText:         "clipboard content",
+			wantRow:          0,
+			wantCol:          17,
+		},
+		{
+			name:             "singleline: with tab",
+			entry:            NewEntry(),
+			clipboardContent: "clipboard\tcontent",
+			wantText:         "clipboard\tcontent",
+			wantRow:          0,
+			wantCol:          17,
+		},
+		{
+			name:             "password: with new line",
+			entry:            NewPasswordEntry(),
+			clipboardContent: "3SB=y+)z\nkHGK(hx6 -e_\"1TZu q^bF3^$u H[:e\"1O.",
+			wantText:         `3SB=y+)z kHGK(hx6 -e_"1TZu q^bF3^$u H[:e"1O.`,
+			wantRow:          0,
+			wantCol:          44,
+		},
+		{
+			name:             "multiline: with new line",
+			entry:            NewMultiLineEntry(),
+			clipboardContent: "clipboard\ncontent",
+			wantText:         "clipboard\ncontent",
+			wantRow:          1,
+			wantCol:          7,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			clipboard.SetContent(tt.clipboardContent)
+			handled := tt.entry.TypedShortcut(shortcut)
+			assert.True(t, handled)
+			assert.Equal(t, tt.wantText, tt.entry.Text)
+			assert.Equal(t, tt.wantRow, tt.entry.CursorRow)
+			assert.Equal(t, tt.wantCol, tt.entry.CursorColumn)
+		})
+	}
 }
