@@ -13,6 +13,7 @@ import (
 func makeButtonTab() fyne.Widget {
 	return widget.NewVBox(
 		widget.NewLabel("Text label"),
+		widget.NewTextGrid("TextGrid\n  Content"),
 		widget.NewButton("Text button", func() { fmt.Println("tapped text button") }),
 		widget.NewButtonWithIcon("With icon", theme.ConfirmIcon(), func() { fmt.Println("tapped icon button") }),
 	)
@@ -24,7 +25,6 @@ func makeInputTab() fyne.Widget {
 
 	return widget.NewVBox(
 		entry,
-		widget.NewTextGrid("Some\n  Text"),
 		widget.NewCheck("Check", func(on bool) { fmt.Println("checked", on) }),
 		widget.NewRadio([]string{"Item 1", "Item 2"}, func(s string) { fmt.Println("selected", s) }),
 	)
@@ -64,7 +64,7 @@ func Widget(app fyne.App) {
 	w := app.NewWindow("Widgets")
 
 	w.SetContent(widget.NewTabContainer(
-		widget.NewTabItem("Buttons", makeButtonTab()),
+		widget.NewTabItem("Basic", makeButtonTab()),
 		widget.NewTabItem("Input", makeInputTab()),
 		widget.NewTabItem("Progress", makeProgressTab()),
 		widget.NewTabItem("Scroll", makeScrollTab()),

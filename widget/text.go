@@ -27,10 +27,9 @@ type textPresenter interface {
 // textProvider represents the base element for text based widget.
 type textProvider struct {
 	baseWidget
-	presenter textPresenter
+	textHandler
 
-	buffer    []rune
-	rowBounds [][2]int
+	presenter textPresenter
 }
 
 // newTextProvider returns a new textProvider with the given text and settings from the passed textPresenter.
@@ -39,9 +38,9 @@ func newTextProvider(text string, pres textPresenter) textProvider {
 		panic("textProvider requires a presenter")
 	}
 	t := textProvider{
-		buffer:    []rune(text),
 		presenter: pres,
 	}
+	t.buffer = []rune(text)
 	t.updateRowBounds()
 	return t
 }
@@ -73,42 +72,6 @@ func (t *textProvider) Hide() {
 	t.hide(t)
 }
 
-// CreateRenderer is a private method to Fyne which links this widget to it's renderer
-func (t *textProvider) CreateRenderer() fyne.WidgetRenderer {
-	if t.presenter == nil {
-		panic("Cannot render a textProvider without a presenter")
-	}
-	r := &textRenderer{provider: t}
-
-	t.updateRowBounds() // set up the initial text layout etc
-	r.Refresh()
-	return r
-}
-
-// updateRowBounds updates the row bounds used to render properly the text widget.
-// updateRowBounds should be invoked every time t.buffer changes.
-func (t *textProvider) updateRowBounds() {
-	var lowBound, highBound int
-	t.rowBounds = [][2]int{}
-
-	if len(t.buffer) == 0 {
-		t.rowBounds = append(t.rowBounds, [2]int{lowBound, highBound})
-		return
-	}
-
-	for i, r := range t.buffer {
-		highBound = i
-		if r != '\n' {
-			continue
-		}
-		t.rowBounds = append(t.rowBounds, [2]int{lowBound, highBound})
-		lowBound = i + 1
-	}
-	//first or last line, increase the highBound index to include the last char
-	highBound++
-	t.rowBounds = append(t.rowBounds, [2]int{lowBound, highBound})
-}
-
 // refreshTextRenderer refresh the textRenderer canvas objects
 // this method should be invoked every time the t.buffer changes
 // example:
@@ -124,26 +87,85 @@ func (t *textProvider) refreshTextRenderer() {
 	Refresh(obj)
 }
 
+// CreateRenderer is a private method to Fyne which links this widget to it's renderer
+func (t *textProvider) CreateRenderer() fyne.WidgetRenderer {
+	if t.presenter == nil {
+		panic("Cannot render a textProvider without a presenter")
+	}
+	r := &textRenderer{provider: t}
+	t.updated = t.refreshTextRenderer
+
+	t.updateRowBounds() // set up the initial text layout etc
+	r.Refresh()
+	return r
+}
+
+type textHandler struct {
+	maxCols int
+
+	buffer    []rune
+	rowBounds [][2]int
+
+	updated func()
+}
+
 // SetText sets the text of the widget
-func (t *textProvider) SetText(text string) {
+func (t *textHandler) SetText(text string) {
 	t.buffer = []rune(text)
 	t.updateRowBounds()
 
-	t.refreshTextRenderer()
+	if t.updated != nil {
+		t.updated()
+	}
+}
+
+// updateRowBounds updates the row bounds used to render properly the text widget.
+// updateRowBounds should be invoked every time t.buffer changes.
+func (t *textHandler) updateRowBounds() {
+	var lowBound, highBound int
+	t.rowBounds = [][2]int{}
+	longest := 0
+
+	if len(t.buffer) == 0 {
+		t.rowBounds = append(t.rowBounds, [2]int{0, 0})
+		return
+	}
+
+	for i, r := range t.buffer {
+		highBound = i
+		if r != '\n' {
+			continue
+		}
+		t.rowBounds = append(t.rowBounds, [2]int{lowBound, highBound})
+		count := highBound - lowBound
+		if longest < count {
+			longest = count
+		}
+		lowBound = i + 1
+	}
+	//first or last line, increase the highBound index to include the last char
+	highBound++
+	t.rowBounds = append(t.rowBounds, [2]int{lowBound, highBound})
+	count := highBound - lowBound
+	if longest < count {
+		longest = count
+	}
+
+	t.maxCols = longest
 }
 
 // String returns the text widget buffer as string
-func (t *textProvider) String() string {
+func (t *textHandler) String() string {
 	return string(t.buffer)
 }
 
 // Len returns the text widget buffer length
-func (t *textProvider) len() int {
+func (t *textHandler) len() int {
 	return len(t.buffer)
 }
 
 // insertAt inserts the text at the specified position
-func (t *textProvider) insertAt(pos int, runes []rune) {
+func (t *textHandler) insertAt(pos int, runes []rune) {
 	// edge case checking
 	if len(t.buffer) < pos {
 		// append to the end if our position was out of sync
@@ -152,35 +174,39 @@ func (t *textProvider) insertAt(pos int, runes []rune) {
 		t.buffer = append(t.buffer[:pos], append(runes, t.buffer[pos:]...)...)
 	}
 	t.updateRowBounds()
-	t.refreshTextRenderer()
+	if t.updated != nil {
+		t.updated()
+	}
 }
 
 // deleteFromTo removes the text between the specified positions
-func (t *textProvider) deleteFromTo(lowBound int, highBound int) []rune {
+func (t *textHandler) deleteFromTo(lowBound int, highBound int) []rune {
 	deleted := make([]rune, highBound-lowBound)
 	copy(deleted, t.buffer[lowBound:highBound])
 	t.buffer = append(t.buffer[:lowBound], t.buffer[highBound:]...)
 	t.updateRowBounds()
-	t.refreshTextRenderer()
+	if t.updated != nil {
+		t.updated()
+	}
 	return deleted
 }
 
 // rows returns the number of text rows in this text entry.
 // The entry may be longer than required to show this amount of content.
-func (t *textProvider) rows() int {
+func (t *textHandler) rows() int {
 	return len(t.rowBounds)
 }
 
 // Row returns the characters in the row specified.
 // The row parameter should be between 0 and t.Rows()-1.
-func (t *textProvider) row(row int) []rune {
+func (t *textHandler) row(row int) []rune {
 	bounds := t.rowBounds[row]
 	return t.buffer[bounds[0]:bounds[1]]
 }
 
 // RowLength returns the number of visible characters in the row specified.
 // The row parameter should be between 0 and t.Rows()-1.
-func (t *textProvider) rowLength(row int) int {
+func (t *textHandler) rowLength(row int) int {
 	return len(t.row(row))
 }
 
