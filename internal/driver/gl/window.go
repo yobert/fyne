@@ -61,6 +61,8 @@ type window struct {
 	xpos, ypos    int
 	width, height int
 	ignoreResize  bool
+
+	serialEvents chan serialEvent
 }
 
 func (w *window) Title() string {
@@ -454,6 +456,12 @@ func (w *window) closed(viewport *glfw.Window) {
 	// trigger callbacks
 	if w.onClosed != nil {
 		w.onClosed()
+	}
+
+	// finish serial event queue and nil it so we don't panic if window.closed() is called twice.
+	if w.serialEvents != nil {
+		close(w.serialEvents)
+		w.serialEvents = nil
 	}
 }
 
@@ -1032,6 +1040,13 @@ func (d *gLDriver) CreateWindow(title string) fyne.Window {
 			gl.Disable(gl.DEPTH_TEST)
 		}
 		ret = &window{viewport: win, title: title}
+
+		// Some events we want to always process in order, such as keyboard events.
+		// So we set up a queue, and dispatch a goroutine to call the event handlers.
+		// This channel will be closed when the window is closed.
+		ret.serialEvents = make(chan serialEvent, 64)
+		go handleSerialEvents(ret.serialEvents)
+
 		ret.canvas = newCanvas(ret)
 		ret.master = master
 		ret.padded = true
